@@ -31,7 +31,7 @@ if TYPE_CHECKING:
 class SetServiceProtocol(Protocol):
     """SetService interface definition."""
 
-    def notify_operation(  # noqa: D102, PLR0913
+    def notify_operation(  # noqa: D102, PLR0913, PLR0917
         self,
         operation: OperationDefinitionBase,
         transaction_id: int,
@@ -161,7 +161,7 @@ class SetService(ServiceWithOperations):
         response = data_model.msg_types.SetComponentStateResponse()
         return self._handle_operation_request(request_data, set_component_state, response)
 
-    def notify_operation(  # noqa: D102, PLR0913
+    def notify_operation(  # noqa: D102, PLR0913, PLR0917
         self,
         operation: OperationDefinitionBase,
         transaction_id: int,

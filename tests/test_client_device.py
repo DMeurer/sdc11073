@@ -7,7 +7,7 @@ waveforms, alerts, and subscription handling.
 from __future__ import annotations
 
 import copy
-import datetime
+import datetime as dt
 import functools
 import itertools
 import logging
@@ -982,7 +982,7 @@ class TestClientSomeDevice(unittest.TestCase):
                 13,
                 12,
                 11,
-                tz_info=datetime.timezone.utc,
+                tz_info=dt.timezone.utc,
             )
         coll.result(timeout=NOTIFICATION_TIMEOUT)
         patient_context_state_container = client_mdib.context_states.NODETYPE.get_one(
@@ -2064,6 +2064,29 @@ class TestDeviceCommonHttpServer(unittest.TestCase):
             sys.stderr.write(repr(ex))
             raise
         self.logger.info('############### tearDown %s done ##############', self._testMethodName)
+
+    def test_restart_with_shared_http_server(self):
+        """Verify that a consumer can be restarted while it uses a shared http server.
+
+        The consumer must unregister itself from the shared http server on stop, otherwise the registration of the
+        restarted consumer is rejected. The worker thread of the deferred request handler must be started again, so
+        that notifications are still handled after the restart.
+        """
+        self.sdc_client_1.restart()
+        self.assertTrue(self.sdc_client_1.is_connected)
+
+        # the deferred request handler must deliver notifications again
+        descriptor_handle = '0x34F00100'
+        coll = observableproperties.SingleValueCollector(self.sdc_client_1, 'episodic_metric_report')
+        with self.sdc_device_1.mdib.metric_state_transaction() as mgr:
+            state = mgr.get_state(descriptor_handle)
+            if state.MetricValue is None:
+                state.mk_metric_value()
+            state.MetricValue.Value = Decimal(23)
+        coll.result(timeout=NOTIFICATION_TIMEOUT)
+
+        # the other consumer on the same http server is unaffected
+        runtest_basic_connect(self, self.sdc_client_2)
 
     def test_basic_connect_common(self):
         runtest_basic_connect(self, self.sdc_client_1)

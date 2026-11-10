@@ -72,7 +72,7 @@ class ConsumerSubscription:
     IDENT_TAG = etree.QName('http.local.com', 'MyClIdentifier')
     is_subscribed = properties.ObservableProperty(False)
 
-    def __init__(  # noqa: PLR0913
+    def __init__(  # noqa: PLR0913, PLR0917
         self,
         msg_factory: MessageFactory,
         data_model: AbstractDataModel,
@@ -349,7 +349,7 @@ class ConsumerSubscription:
 class ConsumerSubscriptionManagerProtocol(Protocol):
     """Factory for Subscription objects."""
 
-    def __init__(  # noqa: PLR0913
+    def __init__(  # noqa: PLR0913, PLR0917
         self,
         msg_reader: MessageReader,
         msg_factory: MessageFactory,
@@ -402,7 +402,7 @@ class ConsumerSubscriptionManager(
     subscription instance of the consumer. Reference parameters are not used.
     """
 
-    def __init__(  # noqa: PLR0913
+    def __init__(  # noqa: PLR0913, PLR0917
         self,
         msg_reader: MessageReader,
         msg_factory: MessageFactory,
@@ -442,7 +442,8 @@ class ConsumerSubscriptionManager(
     def stop(self):
         """Stop the thread."""
         self._stop_event.set()
-        self.join(timeout=2)
+        if self.is_alive():  # join raises if the thread was never started, e.g. because start() failed
+            self.join(timeout=2)
         with self._subscriptions_lock:
             self.subscriptions.clear()
 
