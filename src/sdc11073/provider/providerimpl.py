@@ -38,7 +38,7 @@ from sdc11073.provider import (
 )
 from sdc11073.provider.operations import get_operation_class
 from sdc11073.provider.periodicreports import PeriodicReportsHandler, PeriodicReportsNullHandler
-from sdc11073.provider.porttypes.invocationsource import mk_common_name_invocation_source
+from sdc11073.provider.porttypes.invocationsource import mk_pem_certificate_invocation_source
 from sdc11073.provider.porttypes.localizationservice import LocalizationService, LocalizationStorage
 from sdc11073.provider.sco import ScoOperationsRegistry
 from sdc11073.provider.scopesfactory import mk_scopes
@@ -105,8 +105,9 @@ class SdcProviderComponents:
     hosted_services: MutableMapping[str, Sequence[type[DPWSPortTypeBase]]]
     additional_schema_specs: set[PrefixNamespace] = dataclasses.field(default_factory=set)
     # identifies the SDC PARTICIPANT that invoked a SERVICE OPERATION by its DER encoded x.509 certificate (None if it
-    # is not authenticated), see sdc11073.provider.porttypes.invocationsource for the available implementations
-    invocation_source_factory: Callable[[bytes | None], InstanceIdentifier] = mk_common_name_invocation_source
+    # is not authenticated), by default by the entire PEM encoded certificate. See
+    # sdc11073.provider.porttypes.invocationsource for the available implementations, e.g. the Common Name (R0078).
+    invocation_source_factory: Callable[[bytes | None], InstanceIdentifier] = mk_pem_certificate_invocation_source
 
 
 @dataclasses.dataclass

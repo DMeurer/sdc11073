@@ -1,8 +1,8 @@
 """Integration tests for msg:InvocationSource of OperationInvokedReport (IEEE 11073-20701 R0077/R0078).
 
 Verifies end to end that an operation invoked by a consumer that authenticated with a client
-certificate is reported with the certificate Common Name (R0078) or, if the provider is configured so, with the
-PEM encoded certificate, while an operation invoked over an unauthenticated connection is reported with the
+certificate is reported with the PEM encoded certificate (default) or, if the provider is configured so, with the
+certificate Common Name (R0078), while an operation invoked over an unauthenticated connection is reported with the
 anonymous instance identifier (R0077).
 """
 
@@ -104,19 +104,19 @@ class TestOperationInvocationSource(unittest.TestCase):
         self.assertIsNotNone(result.InvocationSource)
         return result
 
-    def test_known_participant_is_identified_by_certificate_common_name(self):
-        """R0078: a consumer that authenticated with a client certificate is reported by its Common Name."""
-        result = self._invoke_set_string(use_ssl=True)
-        self.assertEqual(result.InvocationSource.Root, invocationsource.DISTINGUISHED_NAME_ROOT)
-        self.assertEqual(result.InvocationSource.Extension, _CERT_COMMON_NAME)
-
     def test_known_participant_is_identified_by_pem_certificate(self):
-        """Discussed corrigendum of R0078: the provider can be configured to report the PEM encoded certificate."""
-        components = provider_components_async_factory()
-        components.invocation_source_factory = invocationsource.mk_pem_certificate_invocation_source
-        result = self._invoke_set_string(use_ssl=True, components=components)
+        """By default a consumer that authenticated with a client certificate is reported by its PEM certificate."""
+        result = self._invoke_set_string(use_ssl=True)
         self.assertEqual(result.InvocationSource.Root, invocationsource.X509_CERTIFICATE_PEM_ROOT)
         self.assertEqual(result.InvocationSource.Extension, _CERT_FOLDER.joinpath('test_certificate.pem').read_text())
+
+    def test_known_participant_is_identified_by_certificate_common_name(self):
+        """R0078: the provider can be configured to report the Common Name of the client certificate."""
+        components = provider_components_async_factory()
+        components.invocation_source_factory = invocationsource.mk_common_name_invocation_source
+        result = self._invoke_set_string(use_ssl=True, components=components)
+        self.assertEqual(result.InvocationSource.Root, invocationsource.DISTINGUISHED_NAME_ROOT)
+        self.assertEqual(result.InvocationSource.Extension, _CERT_COMMON_NAME)
 
     def test_unknown_participant_is_anonymous(self):
         """R0077: a consumer without client authentication is reported as anonymous participant."""

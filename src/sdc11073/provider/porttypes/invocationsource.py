@@ -8,6 +8,14 @@ PARTICIPANT that invoked a SERVICE OPERATION when it fills
   identifier.
 - **R0078**: a known participant is identified by the Common Name of the Distinguished Name of its
   x.509 certificate, using a dedicated ``@Root``.
+
+Identifying a known participant by its Common Name is under discussion, so both identifications are offered as
+``SdcProviderComponents.invocation_source_factory``:
+
+- :func:`mk_pem_certificate_invocation_source` (default) identifies it by its entire PEM encoded certificate, as
+  proposed by the discussed corrigendum of R0078.
+- :func:`mk_common_name_invocation_source` identifies it by the Common Name of its certificate, as the released R0078
+  requires. It needs the optional dependency ``cryptography`` (``pip install sdc11073[cryptography]``).
 """
 
 from __future__ import annotations
@@ -16,6 +24,11 @@ import ssl
 
 from sdc11073.namespaces import PrefixesEnum
 from sdc11073.xml_types import pm_types
+
+try:
+    from cryptography import x509
+except ImportError:
+    x509 = None
 
 # IEEE Std 11073-20701-2018, 7.2.2
 _SDC_NAMESPACE = PrefixesEnum.SDC.namespace
@@ -30,57 +43,30 @@ DISTINGUISHED_NAME_ROOT = f'{_SDC_NAMESPACE}/DistinguishedName'
 #: its PEM encoded x.509 certificate.
 X509_CERTIFICATE_PEM_ROOT = f'{_SDC_NAMESPACE}/X509Certificate/PEM'
 
-# The Common Name is read from the DER encoded certificate by the minimal DER reader below. Using the `cryptography`
-# package would be cleaner (x509.load_der_x509_certificate(...).subject.get_attributes_for_oid(...)), but it was
-# removed as a dependency of sdc11073 in version 2 and is deliberately not re-added just for this.
-_TAG_VERSION = 0xA0  # context specific tag [0] of the version of a TBSCertificate, absent in v1 certificates
-_OID_COMMON_NAME = bytes((0x55, 0x04, 0x03))  # 2.5.4.3, id-at-commonName
-# UTF8String, UniversalString and BMPString; all other string types have single byte characters (as in OpenSSL)
-_STRING_ENCODINGS = {0x0C: 'utf-8', 0x1C: 'utf-32-be', 0x1E: 'utf-16-be'}
 
-
-def _der_elements(data: bytes) -> list[tuple[int, bytes]]:
-    """Split data into its consecutive DER elements and return the tag and the content of each of them."""
-    elements = []
-    offset = 0
-    while offset < len(data):
-        if offset + 2 > len(data):
-            raise ValueError('truncated DER element')
-        tag, length, offset = data[offset], data[offset + 1], offset + 2
-        if length & 0x80:  # long form: the low 7 bits are the number of length octets that follow
-            length_octets = length & 0x7F
-            length = int.from_bytes(data[offset : offset + length_octets], 'big')
-            offset += length_octets
-        if offset + length > len(data):
-            raise ValueError('truncated DER element')
-        elements.append((tag, data[offset : offset + length]))
-        offset += length
-    return elements
+def _require_cryptography() -> None:
+    """Raise an ImportError if the optional dependency cryptography is not installed."""
+    if x509 is None:
+        raise ImportError(
+            'identifying an SDC PARTICIPANT by the Common Name of its certificate requires the optional dependency '
+            'cryptography, install it with "pip install sdc11073[cryptography]"',
+            name='cryptography',
+        )
 
 
 def get_common_names(der_certificate: bytes) -> list[str]:
     """Return the Common Names of the subject Distinguished Name of a DER encoded x.509 certificate.
 
+    Requires the optional dependency cryptography (``pip install sdc11073[cryptography]``).
+
     :param der_certificate: the certificate, e.g. as returned by ``ssl.SSLSocket.getpeercert(binary_form=True)``.
     :return: the Common Names in the order of the Distinguished Name, i.e. the most specific one is the last one.
+    :raises ImportError: if the optional dependency cryptography is not installed.
     :raises ValueError: if der_certificate is not a DER encoded x.509 certificate.
     """
-    try:
-        # Certificate ::= SEQUENCE { tbsCertificate, signatureAlgorithm, signatureValue }
-        certificate = _der_elements(der_certificate)[0][1]
-        # TBSCertificate ::= SEQUENCE { [0] version OPTIONAL, serialNumber, signature, issuer, validity, subject, ...}
-        tbs_certificate = _der_elements(_der_elements(certificate)[0][1])
-        subject = tbs_certificate[5 if tbs_certificate[0][0] == _TAG_VERSION else 4][1]
-    except IndexError as ex:
-        raise ValueError('not a DER encoded x.509 certificate') from ex
-    common_names = []
-    # Name ::= SEQUENCE OF RelativeDistinguishedName, RelativeDistinguishedName ::= SET OF AttributeTypeAndValue
-    for _, relative_distinguished_name in _der_elements(subject):
-        for _, attribute_type_and_value in _der_elements(relative_distinguished_name):
-            (_, attribute_type), (value_tag, value) = _der_elements(attribute_type_and_value)
-            if attribute_type == _OID_COMMON_NAME:
-                common_names.append(value.decode(_STRING_ENCODINGS.get(value_tag, 'latin-1')))
-    return common_names
+    _require_cryptography()
+    subject = x509.load_der_x509_certificate(der_certificate).subject
+    return [attribute.value for attribute in subject.get_attributes_for_oid(x509.NameOID.COMMON_NAME)]
 
 
 def mk_anonymous_invocation_source() -> pm_types.InstanceIdentifier:
@@ -98,8 +84,13 @@ def mk_common_name_invocation_source(peer_certificate: bytes | None) -> pm_types
     RFC 2818, 3.1 does for server identities. A participant without certificate or with a certificate without
     Common Name is identified by the anonymous instance identifier (R0077).
 
+    Requires the optional dependency cryptography (``pip install sdc11073[cryptography]``).
+
     :param peer_certificate: the DER encoded x.509 certificate of the participant, None if it is not authenticated.
+    :raises ImportError: if the optional dependency cryptography is not installed.
     """
+    # checked also without certificate, so that a missing dependency is noticed regardless of the connection
+    _require_cryptography()
     common_names = get_common_names(peer_certificate) if peer_certificate else []
     if common_names:
         return pm_types.InstanceIdentifier(DISTINGUISHED_NAME_ROOT, extension_string=common_names[-1])
@@ -109,8 +100,9 @@ def mk_common_name_invocation_source(peer_certificate: bytes | None) -> pm_types
 def mk_pem_certificate_invocation_source(peer_certificate: bytes | None) -> pm_types.InstanceIdentifier:
     """Identify the SDC PARTICIPANT that invoked a service operation by its entire PEM encoded certificate.
 
-    This implements the discussed corrigendum of R0078 (https://sourceforge.net/p/opensdc/ieee11073-20701/7/).
-    A participant without certificate is identified by the anonymous instance identifier (R0077).
+    This implements the discussed corrigendum of R0078 (https://sourceforge.net/p/opensdc/ieee11073-20701/7/) and is
+    the default ``SdcProviderComponents.invocation_source_factory``. A participant without certificate is identified
+    by the anonymous instance identifier (R0077).
 
     :param peer_certificate: the DER encoded x.509 certificate of the participant, None if it is not authenticated.
     """

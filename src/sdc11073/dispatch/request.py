@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 class RequestData:
     """Hold all information about the processing of a http request together."""
 
-    def __init__(  # noqa: PLR0913
+    def __init__(  # noqa: PLR0913, PLR0917
         self,
         http_header: dict,
         path: str,
